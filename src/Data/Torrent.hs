@@ -187,7 +187,7 @@ import Text.PrettyPrint as PP
 import Text.PrettyPrint.Class
 import System.FilePath
 import System.Posix.Types
-import GHC.Generic
+import GHC.Generics
 
 import Network.BitTorrent.Address
 
