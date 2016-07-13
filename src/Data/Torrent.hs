@@ -614,7 +614,7 @@ data Piece a = Piece
   , pieceData  :: !a
   } deriving (Show, Read, Eq, Functor, Typeable, Generic)
 
-instance NFData (Piece a)
+instance (NFData a) => NFData (Piece a)
 
 -- | Payload bytes are omitted.
 instance Pretty (Piece a) where
@@ -634,7 +634,7 @@ hashPiece Piece {..} = SHA1.hashlazy pieceData
 
 -- | A flat array of SHA1 hash for each piece.
 newtype HashList = HashList { unHashList :: BS.ByteString }
-  deriving (Show, Read, Eq, BEncode, Typeable)
+  deriving (Show, Read, Eq, BEncode, Typeable, Generic)
 
 -- | Empty hash list.
 instance Default HashList where
@@ -655,6 +655,7 @@ makeLensesFor [("piPieceLength", "pieceLength")] ''PieceInfo
 -- | Concatenation of all 20-byte SHA1 hash values.
 makeLensesFor [("piPieceHashes", "pieceHashes")] ''PieceInfo
 
+instance NFData HashList
 instance NFData PieceInfo
 
 instance Default PieceInfo where
