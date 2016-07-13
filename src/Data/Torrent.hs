@@ -28,6 +28,7 @@
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveFoldable             #-}
 {-# LANGUAGE DeriveTraversable          #-}
+{-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# OPTIONS -fno-warn-orphans           #-}
 module Data.Torrent
@@ -186,6 +187,7 @@ import Text.PrettyPrint as PP
 import Text.PrettyPrint.Class
 import System.FilePath
 import System.Posix.Types
+import GHC.Generic
 
 import Network.BitTorrent.Address
 
@@ -610,7 +612,7 @@ data Piece a = Piece
 
     -- | Payload.
   , pieceData  :: !a
-  } deriving (Show, Read, Eq, Functor, Typeable)
+  } deriving (Show, Read, Eq, Functor, Typeable, Generic)
 
 instance NFData (Piece a)
 
@@ -645,7 +647,7 @@ data PieceInfo = PieceInfo
 
   , piPieceHashes  :: !HashList
     -- ^ Concatenation of all 20-byte SHA1 hash values.
-  } deriving (Show, Read, Eq, Typeable)
+  } deriving (Show, Read, Eq, Typeable, Generic)
 
 -- | Number of bytes in each piece.
 makeLensesFor [("piPieceLength", "pieceLength")] ''PieceInfo

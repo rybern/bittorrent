@@ -91,7 +91,6 @@ import qualified Data.ByteString.Lazy.Builder as BS
 import Data.Char
 import Data.Convertible
 import Data.Default
-import Data.Foldable
 import Data.IP
 import Data.List as L
 import Data.List.Split as L

@@ -37,7 +37,6 @@ module Network.BitTorrent.DHT.Token
        , Network.BitTorrent.DHT.Token.update
        ) where
 
-import Control.Applicative
 import Control.Monad.State
 import Data.BEncode (BEncode)
 import Data.ByteString as BS
