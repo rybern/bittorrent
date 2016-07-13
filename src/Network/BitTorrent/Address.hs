@@ -101,7 +101,7 @@ import Data.Hashable
 import Data.Ord
 import Data.Serialize as S
 import Data.String
-import Data.Time
+import Data.Time hiding (defaultTimeLocale)
 import Data.Typeable
 import Data.Version
 import Data.Word

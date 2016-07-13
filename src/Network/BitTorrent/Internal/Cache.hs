@@ -32,7 +32,6 @@ module Network.BitTorrent.Internal.Cache
        ) where
 
 import Control.Applicative
-import Data.Monoid
 import Data.Default
 import Data.Time
 import Data.Time.Clock.POSIX
@@ -79,7 +78,7 @@ instance Alternative Cached where
 
 instance Monad Cached where
   return = pure
-  Cached {..} >>= f = Cached
+  Cached {..} >>= _ = Cached
     { lastUpdated       = undefined
     , updateInterval    = undefined
     , minUpdateInterval = undefined
