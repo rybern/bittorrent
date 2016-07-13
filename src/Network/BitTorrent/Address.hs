@@ -101,7 +101,7 @@ import Data.Hashable
 import Data.Ord
 import Data.Serialize as S
 import Data.String
-import Data.Time hiding (defaultTimeLocale)
+import Data.Time
 import Data.Typeable
 import Data.Version
 import Data.Word
@@ -111,7 +111,7 @@ import Network.HTTP.Types.QueryLike
 import Network.Socket
 import Text.PrettyPrint as PP hiding ((<>))
 import Text.PrettyPrint.Class
-import System.Locale    (defaultTimeLocale)
+--import System.Locale    (defaultTimeLocale)
 import System.Entropy
 
 -- import Paths_bittorrent (version)
