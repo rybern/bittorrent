@@ -105,7 +105,6 @@ import Data.ByteString.Char8 as BC
 import Data.Char as Char
 import Data.Convertible
 import Data.Default
-import Data.Either
 import Data.List as L
 import Data.Maybe
 import Data.Monoid
@@ -115,7 +114,6 @@ import Data.Text (Text)
 import Data.Text.Encoding
 import Data.Typeable
 import Data.Word
-import Data.IP
 import Network
 import Network.HTTP.Types.QueryLike
 import Network.HTTP.Types.URI hiding (urlEncode)

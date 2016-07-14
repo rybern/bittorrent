@@ -40,8 +40,6 @@ module Network.BitTorrent.DHT.Query
        , publish
        ) where
 
-import Control.Applicative
-import Control.Concurrent.Lifted hiding (yield)
 import Control.Exception.Lifted hiding (Handler)
 import Control.Monad.Reader
 import Control.Monad.Logger
@@ -72,7 +70,7 @@ nodeHandler action = handler $ \ sockAddr (Query remoteId q) -> do
   case fromSockAddr sockAddr of
     Nothing    -> throwIO BadAddress
     Just naddr -> do
-      insertNode (NodeInfo remoteId naddr) -- TODO need to block. why?
+      _ <- insertNode (NodeInfo remoteId naddr) -- TODO need to block. why?
       Response <$> asks thisNodeId <*> action naddr q
 
 -- | Default 'Ping' handler.
@@ -143,7 +141,7 @@ announceQ ih p NodeInfo {..} = do
     Left  ns
       | False     -> undefined -- TODO check if we can announce
       | otherwise -> return (Left ns)
-    Right ps -> do -- TODO *probably* add to peer cache
+    Right _ -> do -- TODO *probably* add to peer cache
       Announced <- Announce False ih p grantedToken <@> nodeAddr
       return (Right [nodeAddr])
 
@@ -155,7 +153,7 @@ type Search    ip o = Conduit [NodeInfo ] (DHT ip) [o]
 
 -- TODO: use reorder and filter (Traversal option) leftovers
 search :: TableKey k => Address ip => k -> Iteration ip o -> Search ip o
-search k action = do
+search _ action = do
   awaitForever $ \ batch -> unless (L.null batch) $ do
     $(logWarnS) "search" "start query"
     responses <- lift $ queryParallel (action <$> batch)
@@ -171,7 +169,9 @@ publish ih p = do
   _ <- sourceList [nodes] $= search ih (announceQ ih p) $$ C.take r
   return ()
 
+{-
 republish :: DHT ip ThreadId
 republish = fork $ do
   i <- asks (optReannounce . options)
   error "DHT.republish: not implemented"
+-}

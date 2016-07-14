@@ -47,7 +47,6 @@ module Network.BitTorrent.Client
        , stop
        ) where
 
-import Control.Applicative
 import Control.Exception
 import Control.Concurrent
 import Control.Concurrent.Chan.Split as CS

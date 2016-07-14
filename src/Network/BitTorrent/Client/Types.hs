@@ -20,7 +20,6 @@ module Network.BitTorrent.Client.Types
        , Types.Event (..)
        ) where
 
-import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.Chan.Split as CS
 import Control.Monad.Base
@@ -32,7 +31,6 @@ import Data.Function
 import Data.HashMap.Strict as HM
 import Data.Ord
 import Network
-import System.Log.FastLogger
 
 import Data.Torrent
 import Network.BitTorrent.Address

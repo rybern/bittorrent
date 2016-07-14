@@ -45,7 +45,6 @@ module System.Torrent.Storage
        , sinkStorage
        ) where
 
-import Control.Applicative
 import Control.Exception
 import Control.Monad as M
 import Control.Monad.Trans

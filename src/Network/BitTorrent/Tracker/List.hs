@@ -68,6 +68,7 @@ instance Foldable TrackerList where
   foldr f z (Announce e ) = f (snd e) z
   foldr f z (TierList xs) = foldr (flip (foldr (f . snd))) z xs
 
+_traverseEntry :: (Functor f) => (a -> f b) -> (c, a) -> f (c, b)
 _traverseEntry f (uri, a) = (,) uri <$> f a
 
 instance Traversable TrackerList where
@@ -79,9 +80,9 @@ traverseWithURI :: Applicative f
                 => (TierEntry a -> f b) -> TrackerList a -> f (TrackerList b)
 traverseWithURI f (Announce (uri, a)) = (Announce . (,) uri) <$> f (uri, a)
 traverseWithURI f (TierList  xxs    ) =
-    TierList <$> traverse (traverse (traverseEntry f)) xxs
+    TierList <$> traverse (traverse traverseEntry) xxs
   where
-    traverseEntry f (uri, a) = (,) uri <$> f (uri, a)
+    traverseEntry (uri, a) = (,) uri <$> f (uri, a)
 
 {-----------------------------------------------------------------------
 --  List extraction

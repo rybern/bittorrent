@@ -24,7 +24,6 @@ module Network.BitTorrent.Exchange.Session
        , takeMetadata
        ) where
 
-import Control.Applicative
 import Control.Concurrent
 import Control.Concurrent.Chan.Split as CS
 import Control.Concurrent.STM
@@ -38,13 +37,12 @@ import Data.ByteString.Lazy as BL
 import Data.Conduit as C hiding (connect)
 import Data.Conduit.List as C
 import Data.Map as M
-import Data.Monoid
 import Data.Set  as S
 import Data.Text as T
 import Data.Typeable
+import Data.Monoid
 import Text.PrettyPrint hiding ((<>))
 import Text.PrettyPrint.Class
-import System.Log.FastLogger (LogStr, ToLogStr (..))
 
 import Data.BEncode as BE
 import Data.Torrent as Torrent
@@ -82,7 +80,9 @@ data Cached a = Cached
   }
 
 cache :: BEncode a => a -> Cached a
-cache s = Cached s (BE.encode s)
+cache s = Cached {
+    cachedValue = s
+  , cachedData = BE.encode s}
 
 -- | Logger function.
 type LogFun = Loc -> LogSource -> LogLevel -> LogStr -> IO ()
@@ -102,8 +102,11 @@ data SessionState
     }
 
 newSessionState :: FilePath -> Either InfoHash InfoDict -> IO SessionState
-newSessionState rootPath (Left  ih  ) = do
-  WaitingMetadata <$> newMVar def <*> newEmptyMVar <*> pure rootPath
+newSessionState rootPath (Left  _  ) = 
+  (\download completed -> WaitingMetadata {metadataDownload = download
+                                          , metadataCompleted = completed
+                                          , contentRootPath = rootPath }) <$>
+    newMVar def <*> newEmptyMVar
 newSessionState rootPath (Right dict) = do
   storage     <- openInfoDict ReadWriteEx rootPath dict
   download    <- newMVar $ D.contentDownload (BF.haveNone (totalPieces storage))
@@ -112,11 +115,11 @@ newSessionState rootPath (Right dict) = do
   return $ HavingMetadata (cache dict) download storage
 
 closeSessionState :: SessionState -> IO ()
-closeSessionState WaitingMetadata {..} = return ()
-closeSessionState HavingMetadata  {..} = close contentStorage
+closeSessionState WaitingMetadata {} = return ()
+closeSessionState HavingMetadata  { contentStorage = contentStorage } = close contentStorage
 
 haveMetadata :: InfoDict -> SessionState -> IO SessionState
-haveMetadata dict WaitingMetadata {..} = do
+haveMetadata dict WaitingMetadata { contentRootPath = contentRootPath } = do
   storage     <- openInfoDict ReadWriteEx contentRootPath dict
   download    <- newMVar $ D.contentDownload (BF.haveNone (totalPieces storage))
                                            (piPieceLength (idPieceInfo dict))
@@ -219,7 +222,7 @@ withSession = error "withSession"
 
 instance MonadLogger (Connected Session) where
   monadLoggerLog loc src lvl msg = do
-    conn <- ask
+    _ <- ask
     ses  <- asks connSession
     addr <- asks connRemoteAddr
     let addrSrc = src <> " @ " <> T.pack (render (pretty addr))
@@ -304,21 +307,21 @@ type Finalizer      = IO ()
 type Runner = (ConnectionConfig Session -> IO ())
 
 runConnection :: Runner -> Finalizer -> PeerAddr -> Session -> IO ()
-runConnection runner finalize addr set @ Session {..} = do
+runConnection runner finalize addr _set @ Session {..} = do
     _ <- forkIO (action `finally` cleanup)
     return ()
   where
     action = do
-      notExist <- atomically $ pendingConnection addr set
+      notExist <- atomically $ pendingConnection addr _set
       when notExist $ do
-        cfg <- getConnectionConfig set
+        cfg <- getConnectionConfig _set
         runner cfg
 
     cleanup = do
       finalize
 --      runStatusUpdates status (SS.resetPending addr)
       -- TODO Metata.resetPending addr
-      atomically $ closedConnection addr set
+      atomically $ closedConnection addr _set
 
 -- | Establish connection from scratch. If this endpoint is already
 -- connected, no new connections is created. This function do not block.
@@ -341,16 +344,19 @@ connectSink s = C.mapM_ (liftIO . connectBatch)
   where
     connectBatch = M.mapM_ (\ addr -> connect addr s)
 
+{-
 -- | Why do we need this message?
 type BroadcastMessage = ExtendedCaps -> Message
 
 broadcast :: BroadcastMessage -> Session -> IO ()
 broadcast = error "broadcast"
+-}
 
 {-----------------------------------------------------------------------
 --  Helpers
 -----------------------------------------------------------------------}
 
+{-
 waitMVar :: MVar a -> IO ()
 waitMVar m = withMVar m (const (return ()))
 
@@ -360,6 +366,7 @@ tryReadMVar m = do
   ma <- tryTakeMVar m
   maybe (return ()) (putMVar m) ma
   return ma
+-}
 
 readBlock :: BlockIx -> Storage -> IO (Block BL.ByteString)
 readBlock bix @ BlockIx {..} s = do
@@ -373,15 +380,15 @@ readBlock bix @ BlockIx {..} s = do
 -- |
 tryReadMetadataBlock :: PieceIx
    -> Connected Session (Maybe (Torrent.Piece BS.ByteString, Int))
-tryReadMetadataBlock pix = do
+tryReadMetadataBlock _ = do
   Session {..} <- asks connSession
   s            <- liftIO (readMVar sessionState)
   case s of
-    WaitingMetadata {..} -> error "tryReadMetadataBlock"
-    HavingMetadata  {..} -> error "tryReadMetadataBlock"
+    WaitingMetadata {} -> error "tryReadMetadataBlock"
+    HavingMetadata  {} -> error "tryReadMetadataBlock"
 
 sendBroadcast :: PeerMessage msg => msg -> Wire Session ()
-sendBroadcast msg = do
+sendBroadcast _ = do
   Session {..} <- asks connSession
   error "sendBroadcast"
 --  liftIO $ msg `broadcast` sessionConnections
@@ -390,15 +397,15 @@ waitMetadata :: Session -> IO InfoDict
 waitMetadata Session {..} = do
   s <- readMVar sessionState
   case s of
-    WaitingMetadata {..} -> readMVar metadataCompleted
-    HavingMetadata  {..} -> return (cachedValue metadataCache)
+    WaitingMetadata { metadataCompleted = metadataCompleted } -> readMVar metadataCompleted
+    HavingMetadata  { metadataCache = metadataCache } -> return (cachedValue metadataCache)
 
 takeMetadata :: Session -> IO (Maybe InfoDict)
 takeMetadata Session {..} = do
   s <- readMVar sessionState
   case s of
-    WaitingMetadata {..} -> return Nothing
-    HavingMetadata  {..} -> return (Just (cachedValue metadataCache))
+    WaitingMetadata {} -> return Nothing
+    HavingMetadata  { metadataCache = metadataCache } -> return (Just (cachedValue metadataCache))
 
 {-----------------------------------------------------------------------
 --  Triggers
@@ -409,16 +416,16 @@ type Trigger = Wire Session ()
 
 interesting :: Trigger
 interesting = do
-  addr <- asks connRemoteAddr
+  _ <- asks connRemoteAddr
   sendMessage (Interested True)
   sendMessage (Choking    False)
   tryFillRequestQueue
 
 fillRequestQueue :: Trigger
 fillRequestQueue = do
-  maxN <- lift getMaxQueueLength
-  rbf  <- use  connBitfield
-  addr <- asks connRemoteAddr
+  _ <- lift getMaxQueueLength
+  _  <- use  connBitfield
+  _ <- asks connRemoteAddr
 --  blks <- withStatusUpdates $ do
 --    n <- getRequestQueueLength addr
 --    scheduleBlocks addr rbf (maxN - n)
@@ -427,8 +434,8 @@ fillRequestQueue = do
 
 tryFillRequestQueue :: Trigger
 tryFillRequestQueue = do
-  allowed <- canDownload <$> use connStatus
-  when allowed $ do
+  allowed' <- canDownload <$> use connStatus
+  when allowed' $ do
     fillRequestQueue
 
 {-----------------------------------------------------------------------
@@ -443,7 +450,7 @@ handleStatus s = do
   case s of
     Interested _     -> return ()
     Choking    True  -> do
-      addr <- asks connRemoteAddr
+      _ <- asks connRemoteAddr
 --      withStatusUpdates (SS.resetPending addr)
       return ()
     Choking    False -> tryFillRequestQueue
@@ -451,15 +458,15 @@ handleStatus s = do
 handleAvailable :: Handler Available
 handleAvailable msg = do
   connBitfield %= case msg of
-    Have     ix -> BF.insert ix
-    Bitfield bf -> const     bf
+    Have     ix' -> BF.insert ix'
+    Bitfield bf  -> const     bf
 
   --thisBf <- getThisBitfield
   thisBf <- undefined
   case msg of
-    Have     ix
-      | ix `BF.member`     thisBf -> return ()
-      |     otherwise             -> interesting
+    Have     ix'
+      | ix' `BF.member`     thisBf -> return ()
+      |      otherwise             -> interesting
     Bitfield bf
       | bf `BF.isSubsetOf` thisBf -> return ()
       |     otherwise             -> interesting
@@ -469,8 +476,8 @@ handleTransfer (Request bix) = do
   Session {..} <- asks connSession
   s            <- liftIO $ readMVar sessionState
   case s of
-    WaitingMetadata {..} -> return ()
-    HavingMetadata  {..} -> do
+    WaitingMetadata {} -> return ()
+    HavingMetadata  { contentStorage = contentStorage } -> do
       bitfield <- undefined -- getThisBitfield
       upload   <- canUpload <$> use connStatus
       when (upload && ixPiece bix `BF.member` bitfield) $ do
@@ -481,8 +488,8 @@ handleTransfer (Message.Piece   blk) = do
   Session {..} <- asks connSession
   s            <- liftIO $ readMVar sessionState
   case s of
-    WaitingMetadata {..} -> return () -- TODO (?) break connection
-    HavingMetadata  {..} -> do
+    WaitingMetadata {} -> return () -- TODO (?) break connection
+    HavingMetadata {} -> do
       isSuccess <- undefined -- withStatusUpdates (SS.pushBlock blk storage)
       case isSuccess of
         Nothing -> liftIO $ throwIO $ userError "block is not requested"
@@ -492,10 +499,10 @@ handleTransfer (Message.Piece   blk) = do
 --            maybe send not interested
             tryFillRequestQueue
 
-handleTransfer (Cancel  bix) = filterQueue (not . (transferResponse bix))
+handleTransfer (Cancel  bix) = filterQueue (not . transferResponse)
   where
-    transferResponse bix (Transfer (Message.Piece blk)) = blockIx blk == bix
-    transferResponse _    _                             = False
+    transferResponse (Transfer (Message.Piece blk)) = blockIx blk == bix
+    transferResponse _                              = False
 
 {-----------------------------------------------------------------------
 --  Metadata exchange
@@ -527,7 +534,7 @@ handleMetadata (MetadataRequest pix) =
     mkResponse (Just (piece, total)) = MetadataData   piece total
 
 handleMetadata (MetadataData   {..}) = do
-  ih    <- asks connTopic
+  _     <- asks connTopic
   mdict <- lift $ undefined --withMetadataUpdates (Metadata.pushBlock piece ih)
   case mdict of
     Nothing   -> tryRequestMetadataBlock -- not completed, need all blocks
@@ -535,7 +542,7 @@ handleMetadata (MetadataData   {..}) = do
       Session {..} <- asks connSession
       liftIO $ modifyMVar_ sessionState (haveMetadata dict)
 
-handleMetadata (MetadataReject  pix) = do
+handleMetadata (MetadataReject  _) = do
   lift $ undefined -- withMetadataUpdates (Metadata.cancelPending pix)
 
 handleMetadata (MetadataUnknown _  ) = do
@@ -546,7 +553,7 @@ handleMetadata (MetadataUnknown _  ) = do
 -----------------------------------------------------------------------}
 
 acceptRehandshake :: ExtendedHandshake -> Trigger
-acceptRehandshake ehs = error "acceptRehandshake"
+acceptRehandshake _ = error "acceptRehandshake"
 
 handleExtended :: Handler ExtendedMessage
 handleExtended (EHandshake     ehs) = acceptRehandshake ehs
@@ -558,7 +565,7 @@ handleMessage KeepAlive       = return ()
 handleMessage (Status s)      = handleStatus s
 handleMessage (Available msg) = handleAvailable msg
 handleMessage (Transfer  msg) = handleTransfer msg
-handleMessage (Port      n)   = error "handleMessage"
+handleMessage (Port      _)   = error "handleMessage"
 handleMessage (Fast      _)   = error "handleMessage"
 handleMessage (Extended  msg) = handleExtended msg
 

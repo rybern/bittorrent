@@ -53,7 +53,6 @@ module Network.BitTorrent.DHT
        , runDHT
        ) where
 
-import Control.Applicative
 import Control.Monad.Logger
 import Control.Monad.Reader
 import Control.Exception

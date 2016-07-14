@@ -107,7 +107,6 @@ module Network.BitTorrent.Exchange.Connection
        , Options         (..)
        ) where
 
-import Control.Applicative
 import Control.Concurrent hiding (yield)
 import Control.Exception
 import Control.Monad.Reader
@@ -115,7 +114,6 @@ import Control.Monad.State
 import Control.Monad.Trans.Resource
 import Control.Lens
 import Data.ByteString as BS
-import Data.ByteString.Lazy as BSL
 import Data.Conduit as C
 import Data.Conduit.Cereal
 import Data.Conduit.List
@@ -267,6 +265,7 @@ peerPenalty  PeerDisconnected = 0
 peerPenalty (DecodingError _) = 1
 peerPenalty (ProtocolError e) = errorPenalty e
 peerPenalty (FloodDetected _) = 1
+peerPenalty _ = error "WireFailure not implemented"
 
 -- | Do nothing with exception, used with 'handle' or 'try'.
 isWireFailure :: Monad m => WireFailure -> m ()
@@ -304,6 +303,7 @@ instance Monoid FlowStats where
     , messageCount = messageCount a +  messageCount b
     }
 
+  {-
 -- | Find average length of byte sequences per message.
 avgByteStats :: FlowStats -> ByteStats
 avgByteStats (FlowStats n ByteStats {..}) = ByteStats
@@ -311,6 +311,7 @@ avgByteStats (FlowStats n ByteStats {..}) = ByteStats
   , control  = control  `quot` n
   , payload  = payload  `quot` n
   }
+-}
 
 -- | Message stats in both directions. This data can be retrieved
 -- using 'getStats' function.
@@ -418,9 +419,11 @@ instance Default FloodDetector where
     , floodPredicate = defaultDetector
     }
 
+  {-
 -- | This peer might drop connection if the detector gives positive answer.
 runDetector :: FloodDetector -> ConnectionStats -> Bool
 runDetector FloodDetector {..} = floodPredicate floodFactor floodThreshold
+-}
 
 {-----------------------------------------------------------------------
 --  Options
@@ -659,11 +662,13 @@ instance ToLogStr (Connection s) where
     , toLogStr (show connOptions)
     ]
 
+  {-
 -- TODO check extended messages too
 isAllowed :: Connection s -> Message -> Bool
 isAllowed Connection {..} msg
   | Just ext <- requires msg = ext `allowed` connCaps
   |          otherwise       = True
+-}
 
 {-----------------------------------------------------------------------
 --  Hanshaking
@@ -755,7 +760,7 @@ validate side msg = do
 
 trackFlow :: ChannelSide -> Wire s ()
 trackFlow side = iterM $ do
-  validate side
+  _ <- validate side
   putStats side
 
 {-----------------------------------------------------------------------
@@ -770,15 +775,15 @@ sinkChan :: MonadIO m => Chan Message -> Sink Message m ()
 sinkChan chan = await >>= maybe (return ()) (liftIO . writeChan chan)
 
 sourceChan :: MonadIO m => Int -> Chan Message -> Source m Message
-sourceChan interval chan = do
-  mmsg <- liftIO $ timeout (interval * seconds) $ readChan chan
+sourceChan interval' chan = do
+  mmsg <- liftIO $ timeout (interval' * seconds) $ readChan chan
   yield $ fromMaybe Msg.KeepAlive mmsg
 
 -- | Normally you should use 'connectWire' or 'acceptWire'.
 runWire :: Wire s () -> Socket -> Chan Message -> Connection s -> IO ()
 runWire action sock chan conn = flip runReaderT conn $ runConnected $
   sourceSocket sock        $=
-    conduitGet S.get       $=
+    conduitGet2 S.get       $=
       trackFlow RemotePeer $=
          action            $=
       trackFlow ThisPeer   C.$$
@@ -822,6 +827,7 @@ extendedHandshake caps = do
       connRemoteEhs .= remoteEhs
     _ -> protocolError HandshakeRefused
 
+  {-
 rehandshake :: ExtendedCaps -> Wire s ()
 rehandshake caps = error "rehandshake"
 
@@ -833,6 +839,7 @@ data ConnectionId    = ConnectionId
   , remoteAddr :: !PeerAddr
   , thisAddr   :: !(PeerAddr)-- ^ foreign address of this node.
   }
+-}
 
 -- | /Preffered/ settings of wire. To get the real use 'ask'.
 data ConnectionPrefs = ConnectionPrefs
@@ -850,8 +857,10 @@ instance Default ConnectionPrefs where
     , prefExtCaps  = def
     }
 
+  {-
 normalize :: ConnectionPrefs -> ConnectionPrefs
 normalize = error "normalize"
+-}
 
 -- | Bridge between 'Connection' and 'Network.BitTorrent.Exchange.Session'.
 data SessionLink s = SessionLink

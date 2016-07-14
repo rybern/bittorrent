@@ -41,7 +41,7 @@ import Data.Maybe
 import Data.Map as M
 import Data.Tuple
 
-import Data.Torrent as Torrent
+import Data.Torrent as Torrent hiding (pieceSize)
 import Network.BitTorrent.Address
 import Network.BitTorrent.Exchange.Bitfield as BF
 import Network.BitTorrent.Exchange.Block    as Block
@@ -107,11 +107,14 @@ metadataDownload ps = MetadataDownload [] (Block.empty ps)
 instance Default MetadataDownload where
   def = error "instance Default MetadataDownload"
 
---cancelPending :: PieceIx -> Updates ()
+cancelPending :: MonadState MetadataDownload m => PieceIx -> m ()
 cancelPending pix = pendingPieces %= L.filter ((pix ==) . snd)
 
 instance Download MetadataDownload (Piece BS.ByteString) where
-  scheduleBlock addr bf = do
+  scheduleBlocks = error "Unimplemented!"
+  getRequestQueueLength = error "Unimplemented!"
+
+  scheduleBlock addr _ = do
     bkt  <- use bucket
     case spans metadataPieceSize bkt of
       []              -> return Nothing
@@ -135,20 +138,20 @@ instance Download MetadataDownload (Piece BS.ByteString) where
       Just chunks -> do
           t <- use topic
           case parseInfoDict (BL.toStrict chunks) t of
-            Right x -> do
+            Right _ -> do
                 pendingPieces .= []
                 return undefined -- (Just x)
-            Left  e -> do
+            Left  _ -> do
                 pendingPieces .= []
                 bucket .= Block.empty (Block.size b)
                 return undefined -- Nothing
    where
       -- todo use incremental parsing to avoid BS.concat call
       parseInfoDict :: BS.ByteString -> InfoHash -> Result InfoDict
-      parseInfoDict chunk topic =
+      parseInfoDict chunk topic' =
         case BE.decode chunk of
           Right (infodict @ InfoDict {..})
-            | topic == idInfoHash -> return infodict
+            | topic' == idInfoHash -> return infodict
             |      otherwise      -> Left "broken infodict"
           Left err -> Left $ "unable to parse infodict " ++ err
 
@@ -217,7 +220,7 @@ data ContentDownload = ContentDownload
 contentDownload :: Bitfield -> PieceSize -> Storage -> ContentDownload
 contentDownload = ContentDownload M.empty
 
---modifyEntry :: PieceIx -> (PieceEntry -> PieceEntry) -> DownloadUpdates ()
+modifyEntry :: (MonadState ContentDownload m) => PieceIx -> (PieceEntry -> PieceEntry) -> m ()
 modifyEntry pix f = modify $ \ s @ ContentDownload {..} -> s
     { inprogress = alter (g pieceSize) pix inprogress }
   where
@@ -251,7 +254,7 @@ instance Download ContentDownload (Block BL.ByteString) where
       -- TODO choose block nearest to pending or stalled sets to reduce disk
       -- seeks on remote machines
       --chooseBlocks :: [BlockIx] -> Int -> DownloadUpdates [BlockIx]
-      chooseBlocks xs n = return (L.take n xs)
+      chooseBlocks xs _ = return (L.take n xs)
 
       -- TODO use selection strategies from Exchange.Selector
       --choosePiece :: Bitfield -> DownloadUpdates (Maybe PieceIx)
@@ -268,18 +271,18 @@ instance Download ContentDownload (Block BL.ByteString) where
       reset = fmap $ \ e -> e
             { pending = L.filter (not . (==) addr . fst) (pending e) }
 
-  pushBlock addr blk @ Block {..} = do
+  pushBlock _ blk @ Block {..} = do
     mpe <- gets (M.lookup blkPiece . inprogress)
     case mpe of
       Nothing -> return Nothing
-      Just (pe @ PieceEntry {..})
+      Just (PieceEntry {..})
         | blockIx blk `L.notElem` fmap snd pending -> return Nothing
         |             otherwise                    -> do
          let bkt' = Block.insertLazy blkOffset blkData stalled
          case toPiece bkt' of
            Nothing        -> do
-             modifyEntry blkPiece $ \ e @ PieceEntry {..} -> e
-               { pending = L.filter ((==) (blockIx blk) . snd) pending
+             modifyEntry blkPiece $ \ e @ PieceEntry { pending = pending' } -> e
+               { pending = L.filter ((==) (blockIx blk) . snd) pending'
                , stalled = bkt'
                }
              return (Just False)

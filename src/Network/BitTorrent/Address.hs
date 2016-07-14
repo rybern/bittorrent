@@ -154,12 +154,14 @@ setPort :: PortNumber -> SockAddr -> SockAddr
 setPort port (SockAddrInet  _   h  ) = SockAddrInet  port   h
 setPort port (SockAddrInet6 _ f h s) = SockAddrInet6 port f h s
 setPort _    (SockAddrUnix  s      ) = SockAddrUnix  s
+setPort _    _ = error "Unrecognized SockAddr constructor in setPort"
 {-# INLINE setPort #-}
 
 getPort :: SockAddr -> Maybe PortNumber
 getPort (SockAddrInet  p   _  ) = Just p
 getPort (SockAddrInet6 p _ _ _) = Just p
 getPort (SockAddrUnix  _      ) = Nothing
+getPort _ = Nothing
 {-# INLINE getPort #-}
 
 instance Address NodeAddr where
@@ -546,13 +548,13 @@ instance IsString PeerAddr where
 
 instance IsString PeerAddr where
   fromString str = if '[' `L.elem` str
-                   then fromStringIPv6 str
-                   else fromStringIPv4 str
-    where fromStringIPv6 str
+                   then fromStringIPv6
+                   else fromStringIPv4
+    where fromStringIPv6
             | [((ip,port),"")] <- readsIPv6_port str =
                 PeerAddr Nothing (IPv6 ip) port
             | otherwise = error $ "fromString: unable to parse PeerAddr: " ++ str
-          fromStringIPv4 str
+          fromStringIPv4
             | [hostAddrStr, portStr] <- splitWhen (== ':') str
             , Just hostAddr <- readMaybe hostAddrStr
             , Just portNum  <- toEnum <$> readMaybe portStr
@@ -684,7 +686,7 @@ newtype NodeDistance = NodeDistance BS.ByteString
 instance Pretty NodeDistance where
   pretty (NodeDistance bs) = foldMap bitseq $ BS.unpack bs
     where
-      listBits w = L.map (testBit w) (L.reverse [0..bitSize w - 1])
+      listBits w = L.map (testBit w) (L.reverse [0..finiteBitSize w - 1])
       bitseq = foldMap (int . fromEnum) . listBits
 
 -- | distance(A,B) = |A xor B| Smaller values are closer.

@@ -19,7 +19,6 @@
 {-# LANGUAGE CPP                        #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE OverlappingInstances       #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -177,7 +176,6 @@ import Data.Text.Encoding as T
 import Data.Text.Read
 import Data.Time.Clock.POSIX
 import Data.Typeable
-import Network (HostName)
 import Network.HTTP.Types.QueryLike
 import Network.HTTP.Types.URI
 import Network.URI

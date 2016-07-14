@@ -65,7 +65,6 @@ module Network.BitTorrent.DHT.Session
 
 import Prelude hiding (ioError)
 
-import Control.Applicative
 import Control.Concurrent.STM
 import Control.Concurrent.Lifted hiding (yield)
 import Control.Concurrent.Async.Lifted
@@ -78,7 +77,6 @@ import Control.Monad.Trans.Resource
 import Data.Conduit.Lazy
 import Data.Default
 import Data.Fixed
-import Data.Hashable
 import Data.List as L
 import Data.Maybe
 import Data.Monoid
@@ -87,7 +85,6 @@ import Data.Text as T
 import Data.Time
 import Data.Time.Clock.POSIX
 import Network (PortNumber)
-import System.Log.FastLogger
 import System.Random (randomIO)
 import Text.PrettyPrint as PP hiding ((<>), ($$))
 import Text.PrettyPrint.Class
@@ -113,6 +110,7 @@ type Alpha = Int
 defaultAlpha :: Alpha
 defaultAlpha = 3
 
+  {-
 -- TODO add replication loop
 
 -- TODO do not insert infohash -> peeraddr if infohash is too far from
@@ -126,6 +124,7 @@ data Order
 data Traversal
   = Greedy     -- ^ aggressive short-circuit traversal
   | Exhaustive -- ^
+-}
 
 -- | Original Kamelia DHT uses term /publish/ for data replication
 -- process. BitTorrent DHT uses term /announce/ since the purpose of
@@ -481,7 +480,7 @@ queryNode :: forall a b ip . Address ip => KRPC (Query a) (Response b)
 queryNode addr q = do
   nid <- asks thisNodeId
   Response remoteId r <- query (toSockAddr addr) (Query nid q)
-  insertNode (NodeInfo remoteId addr)
+  _ <- insertNode (NodeInfo remoteId addr)
   return (remoteId, r)
 
 -- | Infix version of 'queryNode' function.
@@ -494,7 +493,7 @@ q <@> addr = snd <$> queryNode addr q
 -- | Failed queries are ignored.
 queryParallel :: [DHT ip a] -> DHT ip [a]
 queryParallel queries = do
-    alpha <- asks (optAlpha . options)
+    _ <- asks (optAlpha . options)
     cleanup <$> mapConcurrently try queries
   where
     cleanup :: [Either QueryFailure a] -> [a]

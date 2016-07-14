@@ -26,7 +26,6 @@ module Network.BitTorrent.Tracker.RPC.HTTP
        , scrapeOne
        ) where
 
-import Control.Applicative
 import Control.Exception
 import Control.Monad
 import Control.Monad.Trans.Resource
@@ -104,9 +103,9 @@ data Manager = Manager
 newManager :: Options -> IO Manager
 newManager opts = Manager opts <$> HTTP.newManager (optHttpOptions opts)
 
--- |
+-- | Depreciated: "Manager will be closed for you automatically when no longer in use"
 closeManager :: Manager -> IO ()
-closeManager Manager {..} = HTTP.closeManager httpMgr
+closeManager Manager {..} = return () -- HTTP.closeManager httpMgr
 
 -- | Normally you need to use 'Control.Monad.Trans.Resource.allocate'.
 withManager :: Options -> (Manager -> IO a) -> IO a
