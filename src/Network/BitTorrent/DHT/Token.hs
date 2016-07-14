@@ -66,7 +66,7 @@ type Secret = Int
 
 -- The BitTorrent implementation uses the SHA1 hash of the IP address
 -- concatenated onto a secret, we use hashable instead.
-makeToken :: Hashable a => NodeAddr a -> Secret -> Token
+makeToken :: NodeAddr -> Secret -> Token
 makeToken n s = Token $ toBS $ hashWithSalt s n
   where
     toBS = toStrict . toLazyByteString . int64BE . fromIntegral
@@ -93,7 +93,7 @@ tokens seed = (`evalState` mkStdGen seed) $
 -- 'update's.
 --
 -- Typically used to handle find_peers query.
-lookup :: Hashable a => NodeAddr a -> TokenMap -> Token
+lookup :: NodeAddr -> TokenMap -> Token
 lookup addr TokenMap {..} = makeToken addr curSecret
 
 -- | Check if token is valid.
@@ -101,7 +101,7 @@ lookup addr TokenMap {..} = makeToken addr curSecret
 -- Typically used to handle 'Network.BitTorrent.DHT.Message.Announce'
 -- query. If token is invalid the 'Network.KRPC.ProtocolError' should
 -- be sent back to the malicious node.
-member :: Hashable a => NodeAddr a -> Token -> TokenMap -> Bool
+member :: NodeAddr -> Token -> TokenMap -> Bool
 member addr token TokenMap {..} = token `L.elem` valid
   where valid = makeToken addr <$> [curSecret, prevSecret]
 

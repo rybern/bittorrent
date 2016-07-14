@@ -68,7 +68,6 @@ import Data.PSQueue as PSQ
 import Data.Serialize as S hiding (Result, Done)
 import Data.Time
 import Data.Time.Clock.POSIX
-import Data.Word
 import GHC.Generics
 import Text.PrettyPrint as PP hiding ((<>))
 import Text.PrettyPrint.Class
@@ -98,21 +97,21 @@ import Network.BitTorrent.Address
 type Timestamp = POSIXTime
 
 -- | Some routing operations might need to perform additional IO.
-data Routing ip result
+data Routing result
   = Full
   | Done      result
-  | GetTime                ( Timestamp    -> Routing ip result)
-  | NeedPing (NodeAddr ip) ( Bool         -> Routing ip result)
-  | Refresh   NodeId       ([NodeInfo ip] -> Routing ip result)
+  | GetTime                ( Timestamp    -> Routing result)
+  | NeedPing  NodeAddr     ( Bool         -> Routing result)
+  | Refresh   NodeId       ([NodeInfo]    -> Routing result)
 
-instance Functor (Routing ip) where
+instance Functor Routing where
   fmap _  Full             = Full
   fmap f (Done          r) = Done          (     f   r)
   fmap f (GetTime       g) = GetTime       (fmap f . g)
   fmap f (NeedPing addr g) = NeedPing addr (fmap f . g)
   fmap f (Refresh  nid  g) = Refresh  nid  (fmap f . g)
 
-instance Monad (Routing ip) where
+instance Monad Routing where
   return = Done
 
   Full         >>= _ = Full
@@ -121,11 +120,11 @@ instance Monad (Routing ip) where
   NeedPing a f >>= m = NeedPing a  $ \ p -> f p >>= m
   Refresh  n f >>= m = Refresh  n  $ \ i -> f i >>= m
 
-instance Applicative (Routing ip) where
+instance Applicative Routing where
   pure  = return
   (<*>) = ap
 
-instance Alternative (Routing ip) where
+instance Alternative Routing where
   empty = Full
 
   Full         <|> m = m
@@ -135,11 +134,11 @@ instance Alternative (Routing ip) where
   Refresh  n f <|> m = Refresh  n $ \ i -> f i <|> m
 
 -- | Run routing table operation.
-runRouting :: (Monad m, Eq ip)
-           => (NodeAddr ip -> m Bool)          -- ^ ping the specific node;
-           -> (NodeId      -> m [NodeInfo ip]) -- ^ get closest nodes;
+runRouting :: (Monad m)
+           => (NodeAddr    -> m Bool)          -- ^ ping the specific node;
+           -> (NodeId      -> m [NodeInfo])    -- ^ get closest nodes;
            -> m Timestamp                      -- ^ get current time;
-           -> Routing ip f                     -- ^ operation to run;
+           -> Routing f                        -- ^ operation to run;
            -> m (Maybe f)                      -- ^ operation result;
 runRouting ping_node find_nodes timestamper = go
   where
@@ -157,15 +156,15 @@ runRouting ping_node find_nodes timestamper = go
       infos <- find_nodes nid
       go (f infos)
 
-getTime :: Routing ip Timestamp
+getTime :: Routing Timestamp
 getTime = GetTime return
 {-# INLINE getTime #-}
 
-needPing :: NodeAddr ip -> Routing ip Bool
+needPing :: NodeAddr -> Routing Bool
 needPing addr = NeedPing addr return
 {-# INLINE needPing #-}
 
-refresh :: NodeId -> Routing ip [NodeInfo ip]
+refresh :: NodeId -> Routing [NodeInfo]
 refresh nid = Refresh nid return
 {-# INLINE refresh #-}
 
@@ -182,7 +181,7 @@ refresh nid = Refresh nid return
 -- other words: new nodes are used only when older nodes disappear.
 
 -- | Timestamp - last time this node is pinged.
-type NodeEntry ip = Binding (NodeInfo ip) Timestamp
+type NodeEntry = Binding NodeInfo Timestamp
 
 instance (Serialize k, Serialize v) => Serialize (Binding k v) where
   get = (:->) <$> get <*> get
@@ -205,7 +204,7 @@ defaultBucketSize = 8
 --   very unlikely that all nodes in bucket fail within an hour of
 --   each other.
 --
-type Bucket ip = PSQ (NodeInfo ip) Timestamp
+type Bucket = PSQ NodeInfo Timestamp
 
 instance (Serialize k, Serialize v, Ord k, Ord v)
        => Serialize (PSQ k v) where
@@ -213,14 +212,14 @@ instance (Serialize k, Serialize v, Ord k, Ord v)
   put = put . PSQ.toList
 
 -- | Get the most recently changed node entry, if any.
-lastChanged :: Eq ip => Bucket ip -> Maybe (NodeEntry ip)
+lastChanged :: Bucket -> Maybe NodeEntry
 lastChanged bucket
   | L.null timestamps = Nothing
   |      otherwise    = Just (L.maximumBy (compare `on` prio) timestamps)
   where
     timestamps = PSQ.toList bucket
 
-leastRecently :: Eq ip => Bucket ip -> Maybe (NodeEntry ip, Bucket ip)
+leastRecently :: Bucket -> Maybe (NodeEntry, Bucket)
 leastRecently = minView
 
 -- | Update interval, in seconds.
@@ -228,8 +227,7 @@ delta :: NominalDiffTime
 delta = 15 * 60
 
 -- | Should maintain a set of stable long running nodes.
-insertBucket :: Eq ip => Timestamp -> NodeInfo ip -> Bucket ip
-           -> ip `Routing` Bucket ip
+insertBucket :: Timestamp -> NodeInfo -> Bucket -> Routing Bucket
 insertBucket curTime info bucket
   -- just update timestamp if a node is already in bucket
   | Just _ <- PSQ.lookup info bucket = do
@@ -262,14 +260,14 @@ insertBucket curTime info bucket
   -- When the bucket is full of good nodes, the new node is simply discarded.
   | otherwise = A.empty
 
-insertNode :: Eq ip => NodeInfo ip -> Bucket ip -> ip `Routing` Bucket ip
+insertNode :: NodeInfo -> Bucket -> Routing Bucket
 insertNode info bucket = do
   curTime <- getTime
   insertBucket curTime info bucket
 
 type BitIx = Word
 
-split :: Eq ip => BitIx -> Bucket ip -> (Bucket ip, Bucket ip)
+split :: BitIx -> Bucket -> (Bucket, Bucket)
 split i = (PSQ.fromList *** PSQ.fromList) . partition spanBit . PSQ.toList
   where
     spanBit entry = testIdBit (nodeId (key entry)) i
@@ -300,18 +298,18 @@ defaultBucketCount = 20
 -- is always split into two new buckets covering the ranges @0..2 ^
 -- 159@ and @2 ^ 159..2 ^ 160@.
 --
-data Table ip
+data Table
   -- most nearest bucket
-  = Tip  NodeId BucketCount (Bucket ip)
+  = Tip  NodeId BucketCount Bucket
 
   -- left biased tree branch
-  | Zero (Table  ip) (Bucket ip)
+  | Zero  Table Bucket
 
   -- right biased tree branch
-  | One  (Bucket ip) (Table  ip)
+  | One Bucket Table
     deriving (Show, Generic)
 
-instance Eq ip => Eq (Table ip) where
+instance Eq Table where
   (==) = (==) `on` Network.BitTorrent.DHT.Routing.toList
 
 instance Serialize NominalDiffTime where
@@ -321,10 +319,10 @@ instance Serialize NominalDiffTime where
 -- | Normally, routing table should be saved between invocations of
 -- the client software. Note that you don't need to store /this/
 -- 'NodeId' since it is already included in routing table.
-instance (Eq ip, Serialize ip) => Serialize (Table ip)
+instance Serialize Table
 
 -- | Shape of the table.
-instance Pretty (Table ip) where
+instance Pretty Table where
   pretty t
     | bucketCount < 6 = hcat $ punctuate ", " $ L.map PP.int ss
     |    otherwise    = brackets $
@@ -335,26 +333,26 @@ instance Pretty (Table ip) where
       ss = shape t
 
 -- | Empty table with specified /spine/ node id.
-nullTable :: Eq ip => NodeId -> BucketCount -> Table ip
+nullTable :: NodeId -> BucketCount -> Table
 nullTable nid n = Tip nid (bucketCount (pred n)) PSQ.empty
   where
     bucketCount x = max 0 (min 159 x)
 
 -- | Test if table is empty. In this case DHT should start
 -- bootstrapping process until table becomes 'full'.
-null :: Table ip -> Bool
+null :: Table -> Bool
 null (Tip _ _ b) = PSQ.null b
 null  _          = False
 
 -- | Test if table have maximum number of nodes. No more nodes can be
 -- 'insert'ed, except old ones becomes bad.
-full :: Table ip -> Bool
+full :: Table -> Bool
 full (Tip  _ n _) = n == 0
 full (Zero   t b) = PSQ.size b == defaultBucketSize && full t
 full (One    b t) = PSQ.size b == defaultBucketSize && full t
 
 -- | Get the /spine/ node id.
-thisId :: Table ip -> NodeId
+thisId :: Table -> NodeId
 thisId (Tip  nid _ _) = nid
 thisId (Zero table _) = thisId table
 thisId (One _  table) = thisId table
@@ -364,20 +362,20 @@ type NodeCount   = Int
 
 -- | Internally, routing table is similar to list of buckets or a
 -- /matrix/ of nodes. This function returns the shape of the matrix.
-shape :: Table ip -> [BucketSize]
+shape :: Table -> [BucketSize]
 shape (Tip _ _ bucket) = [PSQ.size bucket]
 shape (Zero t  bucket) = PSQ.size bucket : shape t
 shape (One bucket t  ) = PSQ.size bucket : shape t
 
 -- | Get number of nodes in the table.
-size :: Table ip -> NodeCount
+size :: Table -> NodeCount
 size = L.sum . shape
 
 -- | Get number of buckets in the table.
-depth :: Table ip -> BucketCount
+depth :: Table -> BucketCount
 depth = L.length . shape
 
-lookupBucket :: NodeId -> Table ip -> Maybe (Bucket ip)
+lookupBucket :: NodeId -> Table -> Maybe Bucket
 lookupBucket nid = go 0
   where
     go i (Zero table bucket)
@@ -408,7 +406,7 @@ instance TableKey InfoHash where
 
 -- | Get a list of /K/ closest nodes using XOR metric. Used in
 -- 'find_node' and 'get_peers' queries.
-kclosest :: Eq ip => TableKey a => K -> a -> Table ip -> [NodeInfo ip]
+kclosest :: TableKey a => K -> a -> Table -> [NodeInfo]
 kclosest k (toNodeId -> nid)
   = L.take k . rank nid
   . L.map PSQ.key . PSQ.toList . fromMaybe PSQ.empty
@@ -418,7 +416,7 @@ kclosest k (toNodeId -> nid)
 --  Routing
 -----------------------------------------------------------------------}
 
-splitTip :: Eq ip => NodeId -> BucketCount -> BitIx -> Bucket ip -> Table ip
+splitTip :: NodeId -> BucketCount -> BitIx -> Bucket -> Table
 splitTip nid n i bucket
   | testIdBit nid i = (One  zeros (Tip nid (pred n) ones))
   |    otherwise    = (Zero (Tip nid (pred n) zeros) ones)
@@ -426,7 +424,7 @@ splitTip nid n i bucket
     (zeros, ones) = split i bucket
 
 -- | Used in each query.
-insert :: Eq ip => NodeInfo ip -> Table ip -> ip `Routing` Table ip
+insert :: NodeInfo -> Table -> Routing Table
 insert info @ NodeInfo {..} = go (0 :: BitIx)
   where
     go i (Zero table  bucket)
@@ -444,16 +442,16 @@ insert info @ NodeInfo {..} = go (0 :: BitIx)
 --  Conversion
 -----------------------------------------------------------------------}
 
-type TableEntry ip = (NodeInfo ip, Timestamp)
+type TableEntry = (NodeInfo, Timestamp)
 
-tableEntry :: NodeEntry ip -> TableEntry ip
+tableEntry :: NodeEntry -> TableEntry
 tableEntry (a :-> b) = (a, b)
 
 -- | Non-empty list of buckets.
-toBucketList :: Table ip -> [Bucket ip]
+toBucketList :: Table -> [Bucket]
 toBucketList (Tip _ _ b) = [b]
 toBucketList (Zero  t b) = b : toBucketList t
 toBucketList (One   b t) = b : toBucketList t
 
-toList :: Eq ip => Table ip -> [[TableEntry ip]]
+toList :: Table -> [[TableEntry]]
 toList = L.map (L.map tableEntry . PSQ.toList) . toBucketList

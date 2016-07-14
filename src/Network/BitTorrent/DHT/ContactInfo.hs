@@ -7,7 +7,6 @@ module Network.BitTorrent.DHT.ContactInfo
 import Data.Default
 import Data.List as L
 import Data.Maybe
-import Data.Monoid
 import Data.HashMap.Strict as HM
 import Data.Serialize
 
@@ -108,15 +107,15 @@ splitGT = undefined
 
 -- | Storage used to keep track a set of known peers in client,
 -- tracker or DHT sessions.
-newtype PeerStore ip = PeerStore (HashMap InfoHash [PeerAddr ip])
+newtype PeerStore = PeerStore (HashMap InfoHash [PeerAddr])
 
 -- | Empty store.
-instance Default (PeerStore a) where
+instance Default (PeerStore) where
   def = PeerStore HM.empty
   {-# INLINE def #-}
 
 -- | Monoid under union operation.
-instance Eq a => Monoid (PeerStore a) where
+instance Monoid (PeerStore) where
   mempty  = def
   {-# INLINE mempty #-}
 
@@ -126,14 +125,14 @@ instance Eq a => Monoid (PeerStore a) where
 
 -- | Can be used to store peers between invocations of the client
 -- software.
-instance Serialize (PeerStore a) where
+instance Serialize PeerStore where
   get = undefined
   put = undefined
 
 -- | Used in 'get_peers' DHT queries.
-lookup :: InfoHash -> PeerStore a -> [PeerAddr a]
+lookup :: InfoHash -> PeerStore -> [PeerAddr]
 lookup ih (PeerStore m) = fromMaybe [] $ HM.lookup ih m
 
 -- | Used in 'announce_peer' DHT queries.
-insert :: Eq a => InfoHash -> PeerAddr a -> PeerStore a -> PeerStore a
+insert :: InfoHash -> PeerAddr -> PeerStore -> PeerStore
 insert ih a (PeerStore m) = PeerStore (HM.insertWith L.union ih [a] m)

@@ -86,10 +86,10 @@ instance EventSource Client where
 -- | External IP address of a host running a bittorrent client
 -- software may be used to acknowledge remote peer the host connected
 -- to. See 'Network.BitTorrent.Exchange.Message.ExtendedHandshake'.
-externalAddr :: Client -> PeerAddr (Maybe IP)
+externalAddr :: Client -> PeerAddr
 externalAddr Client {..} = PeerAddr
   { peerId   = Just clientPeerId
-  , peerHost = Nothing -- TODO return external IP address, if known
+  , peerHost = error "External address unknown - fix abstraction! "--Nothing -- TODO return external IP address, if known
   , peerPort = clientListenerPort
   }
 

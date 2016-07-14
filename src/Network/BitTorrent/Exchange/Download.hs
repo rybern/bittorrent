@@ -8,6 +8,7 @@
 --
 --
 {-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TemplateHaskell        #-}
@@ -28,7 +29,6 @@ module Network.BitTorrent.Exchange.Download
        , contentDownload
        ) where
 
-import Control.Applicative
 import Control.Concurrent
 import Control.Lens
 import Control.Monad.State
@@ -59,14 +59,14 @@ runDownloadUpdates :: MVar s -> Updates s a -> IO a
 runDownloadUpdates var m = modifyMVar var (fmap swap . runStateT m)
 
 class Download s chunk | s -> chunk where
-  scheduleBlocks :: Int -> PeerAddr IP -> Bitfield -> Updates s [BlockIx]
+  scheduleBlocks :: Int -> PeerAddr -> Bitfield -> Updates s [BlockIx]
 
   -- |
-  scheduleBlock  :: PeerAddr IP -> Bitfield -> Updates s (Maybe BlockIx)
+  scheduleBlock  :: PeerAddr -> Bitfield -> Updates s (Maybe BlockIx)
   scheduleBlock addr bf = listToMaybe <$> scheduleBlocks 1 addr bf
 
   -- | Get number of sent requests to this peer.
-  getRequestQueueLength :: PeerAddr IP -> Updates s Int
+  getRequestQueueLength :: PeerAddr -> Updates s Int
 
   -- | Remove all pending block requests to the remote peer. May be used
   -- when:
@@ -77,14 +77,14 @@ class Download s chunk | s -> chunk where
   --
   --     * timeout expired.
   --
-  resetPending :: PeerAddr IP -> Updates s ()
+  resetPending :: PeerAddr -> Updates s ()
 
   -- | MAY write to storage, if a new piece have been completed.
   --
   --  You should check if a returned by peer block is actually have
   -- been requested and in-flight. This is needed to avoid "I send
   -- random corrupted block" attacks.
-  pushBlock :: PeerAddr IP -> chunk -> Updates s (Maybe Bool)
+  pushBlock :: PeerAddr -> chunk -> Updates s (Maybe Bool)
 
 {-----------------------------------------------------------------------
 --  Metadata download
@@ -93,7 +93,7 @@ class Download s chunk | s -> chunk where
 -- TODO
 
 data MetadataDownload = MetadataDownload
-  { _pendingPieces :: [(PeerAddr IP, PieceIx)]
+  { _pendingPieces :: [(PeerAddr, PieceIx)]
   , _bucket        :: Bucket
   , _topic         :: InfoHash
   }
@@ -192,7 +192,7 @@ instance Download MetadataDownload (Piece BS.ByteString) where
 --
 
 data PieceEntry = PieceEntry
-  { pending :: [(PeerAddr IP, BlockIx)]
+  { pending :: [(PeerAddr, BlockIx)]
   , stalled :: Bucket
   }
 

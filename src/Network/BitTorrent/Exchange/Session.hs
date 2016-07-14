@@ -35,7 +35,7 @@ import Control.Monad.Logger
 import Control.Monad.Reader
 import Data.ByteString as BS
 import Data.ByteString.Lazy as BL
-import Data.Conduit as C
+import Data.Conduit as C hiding (connect)
 import Data.Conduit.List as C
 import Data.Map as M
 import Data.Monoid
@@ -145,14 +145,14 @@ data Session = Session
 
     -- | Connections either waiting for TCP/uTP 'connect' or waiting
     -- for BT handshake.
-  , connectionsPending     :: !(TVar (Set (PeerAddr IP)))
+  , connectionsPending     :: !(TVar (Set PeerAddr))
 
     -- | Connections successfully handshaked and data transfer can
     -- take place.
-  , connectionsEstablished :: !(TVar (Map (PeerAddr IP) (Connection Session)))
+  , connectionsEstablished :: !(TVar (Map (PeerAddr) (Connection Session)))
 
     -- | TODO implement choking mechanism
-  , connectionsUnchoked    ::  [PeerAddr IP]
+  , connectionsUnchoked    ::  [PeerAddr]
 
     -- | Messages written to this channel will be sent to the all
     -- connections, including pending connections (but right after
@@ -162,17 +162,17 @@ data Session = Session
 
 instance EventSource Session where
   data Event Session
-    = ConnectingTo (PeerAddr IP)
-    | ConnectionEstablished (PeerAddr IP)
+    = ConnectingTo (PeerAddr)
+    | ConnectionEstablished (PeerAddr)
     | ConnectionAborted
-    | ConnectionClosed (PeerAddr IP)
+    | ConnectionClosed (PeerAddr)
     | SessionClosed
       deriving Show
 
   listen Session {..} = CS.listen sessionEvents
 
 newSession :: LogFun
-           -> PeerAddr (Maybe IP)      -- ^ /external/ address of this peer;
+           -> PeerAddr                 -- ^ /external/ address of this peer;
            -> FilePath                 -- ^ root directory for content files;
            -> Either InfoHash InfoDict -- ^ torrent info dictionary;
            -> IO Session
@@ -246,7 +246,7 @@ logEvent       = logInfoN
 ---
 
 -- | Add connection to the pending set.
-pendingConnection :: PeerAddr IP -> Session -> STM Bool
+pendingConnection :: PeerAddr -> Session -> STM Bool
 pendingConnection addr Session {..} = do
   pSet <- readTVar connectionsPending
   eSet <- readTVar connectionsEstablished
@@ -279,7 +279,7 @@ finishedConnection = do
 
 -- | There are no state for this connection, remove it from the all
 -- sets.
-closedConnection :: PeerAddr IP -> Session -> STM ()
+closedConnection :: PeerAddr -> Session -> STM ()
 closedConnection addr Session {..} = do
   modifyTVar connectionsPending     $ S.delete addr
   modifyTVar connectionsEstablished $ M.delete addr
@@ -303,7 +303,7 @@ getConnectionConfig s @ Session {..} = do
 type Finalizer      = IO ()
 type Runner = (ConnectionConfig Session -> IO ())
 
-runConnection :: Runner -> Finalizer -> PeerAddr IP -> Session -> IO ()
+runConnection :: Runner -> Finalizer -> PeerAddr -> Session -> IO ()
 runConnection runner finalize addr set @ Session {..} = do
     _ <- forkIO (action `finally` cleanup)
     return ()
@@ -322,7 +322,7 @@ runConnection runner finalize addr set @ Session {..} = do
 
 -- | Establish connection from scratch. If this endpoint is already
 -- connected, no new connections is created. This function do not block.
-connect :: PeerAddr IP -> Session -> IO ()
+connect :: PeerAddr -> Session -> IO ()
 connect addr = runConnection (connectWire addr) (return ()) addr
 
 -- | Establish connection with already pre-connected endpoint. If this
@@ -336,10 +336,10 @@ establish conn = runConnection (acceptWire conn) (closePending conn)
                  (pendingPeer conn)
 
 -- | Conduit version of 'connect'.
-connectSink :: MonadIO m => Session -> Sink [PeerAddr IPv4] m ()
+connectSink :: MonadIO m => Session -> Sink [PeerAddr] m ()
 connectSink s = C.mapM_ (liftIO . connectBatch)
   where
-    connectBatch = M.mapM_ (\ addr -> connect (IPv4 <$> addr) s)
+    connectBatch = M.mapM_ (\ addr -> connect addr s)
 
 -- | Why do we need this message?
 type BroadcastMessage = ExtendedCaps -> Message

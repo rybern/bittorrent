@@ -98,7 +98,7 @@ data TrackerSession = TrackerSession
     statusSent    :: !(Maybe Status)
 
     -- | Can be used to retrieve peer set.
-  , trackerPeers  :: Cached [PeerAddr IP]
+  , trackerPeers  :: Cached [PeerAddr]
 
     -- | Can be used to show brief swarm stats in client GUI.
   , trackerScrape :: Cached LastScrape
@@ -129,7 +129,7 @@ nextStatus Completed = Nothing -- must keep previous status
 seconds :: Int -> NominalDiffTime
 seconds n = realToFrac (toEnum n :: Uni)
 
-cachePeers :: AnnounceInfo -> IO (Cached [PeerAddr IP])
+cachePeers :: AnnounceInfo -> IO (Cached [PeerAddr])
 cachePeers AnnounceInfo {..} =
   newCached (seconds respInterval)
             (seconds (fromMaybe respInterval respMinInterval))
@@ -264,7 +264,7 @@ notify mgr ses event = do
 -- TODO run announce if sesion have no peers
 -- | The returned list of peers can have duplicates.
 --   This function /may/ block. Use async if needed.
-askPeers :: Manager -> Session -> IO [PeerAddr IP]
+askPeers :: Manager -> Session -> IO [PeerAddr]
 askPeers _mgr ses = do
   list    <- readMVar (sessionTrackers ses)
   L.concat <$> collect (tryTakeData . trackerPeers) list
@@ -272,7 +272,7 @@ askPeers _mgr ses = do
 collect :: (a -> IO (Maybe b)) -> TrackerList a -> IO [b]
 collect f lst = (catMaybes . F.toList) <$> traverse f lst
 
---sourcePeers :: Session -> Source (PeerAddr IP)
+--sourcePeers :: Session -> Source (PeerAddr)
 --sourcePeers
 
 {-----------------------------------------------------------------------

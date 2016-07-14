@@ -162,11 +162,11 @@ getPort (SockAddrInet6 p _ _ _) = Just p
 getPort (SockAddrUnix  _      ) = Nothing
 {-# INLINE getPort #-}
 
-instance Address a => Address (NodeAddr a) where
+instance Address NodeAddr where
   toSockAddr NodeAddr {..} = setPort nodePort $ toSockAddr nodeHost
   fromSockAddr sa = NodeAddr <$> fromSockAddr sa <*> getPort sa
 
-instance Address a => Address (PeerAddr a) where
+instance Address PeerAddr where
   toSockAddr PeerAddr {..} = setPort peerPort $ toSockAddr peerHost
   fromSockAddr sa = PeerAddr Nothing <$> fromSockAddr sa <*> getPort sa
 
@@ -479,16 +479,16 @@ instance Hashable IP where
 
 -- | Peer address info normally extracted from peer list or peer
 -- compact list encoding.
-data PeerAddr a = PeerAddr
+data PeerAddr = PeerAddr
   { peerId   :: !(Maybe PeerId)
 
     -- | This is usually 'IPv4', 'IPv6', 'IP' or unresolved
     -- 'HostName'.
-  , peerHost :: !a
+  , peerHost :: !IP
 
     -- | The port the peer listenning for incoming P2P sessions.
   , peerPort :: {-# UNPACK #-} !PortNumber
-  } deriving (Show, Eq, Ord, Typeable, Functor)
+  } deriving (Show, Eq, Ord, Typeable) -- Functor)
 
 peer_ip_key, peer_id_key, peer_port_key :: BKey
 peer_ip_key   = "ip"
@@ -496,7 +496,7 @@ peer_id_key   = "peer id"
 peer_port_key = "port"
 
 -- | The tracker's 'announce response' compatible encoding.
-instance (Typeable a, BEncode a) => BEncode (PeerAddr a) where
+instance BEncode PeerAddr where
   toBEncode PeerAddr {..} = toDict $
        peer_ip_key   .=! peerHost
     .: peer_id_key   .=? peerId
@@ -516,31 +516,50 @@ instance (Typeable a, BEncode a) => BEncode (PeerAddr a) where
 --   For more info see: <http://www.bittorrent.org/beps/bep_0023.html>
 --
 -- TODO: test byte order
-instance (Serialize a) => Serialize (PeerAddr a) where
+instance Serialize PeerAddr where
   put PeerAddr {..} = put peerHost >> put peerPort
   get = PeerAddr Nothing <$> get <*> get
 
 -- | @127.0.0.1:6881@
-instance Default (PeerAddr IPv4) where
+instance Default PeerAddr where
   def = "127.0.0.1:6881"
 
--- | @127.0.0.1:6881@
-instance Default (PeerAddr IP) where
-  def = IPv4 <$> def
-
+  {-
 -- | Example:
 --
 --   @peerPort \"127.0.0.1:6881\" == 6881@
 --
-instance IsString (PeerAddr IPv4) where
+instance IsString PeerAddr where
   fromString str
     | [hostAddrStr, portStr] <- splitWhen (== ':') str
     , Just hostAddr <- readMaybe hostAddrStr
     , Just portNum  <- toEnum <$> readMaybe portStr
                 = PeerAddr Nothing hostAddr portNum
-    | otherwise = error $ "fromString: unable to parse (PeerAddr IPv4): " ++ str
+    | otherwise = error $ "fromString: unable to parse PeerAddr: " ++ str
 
-instance Read (PeerAddr IPv4) where
+instance IsString PeerAddr where
+  fromString str
+    | [((ip,port),"")] <- readsIPv6_port str =
+        PeerAddr Nothing ip port
+    | otherwise = error $ "fromString: unable to parse PeerAddr: " ++ str
+-}
+
+instance IsString PeerAddr where
+  fromString str = if '[' `L.elem` str
+                   then fromStringIPv6 str
+                   else fromStringIPv4 str
+    where fromStringIPv6 str
+            | [((ip,port),"")] <- readsIPv6_port str =
+                PeerAddr Nothing (IPv6 ip) port
+            | otherwise = error $ "fromString: unable to parse PeerAddr: " ++ str
+          fromStringIPv4 str
+            | [hostAddrStr, portStr] <- splitWhen (== ':') str
+            , Just hostAddr <- readMaybe hostAddrStr
+            , Just portNum  <- toEnum <$> readMaybe portStr
+                        = PeerAddr Nothing (IPv4 hostAddr) portNum
+            | otherwise = error $ "fromString: unable to parse PeerAddr: " ++ str
+
+instance Read PeerAddr where
   readsPrec i = RP.readP_to_S $ do
     ipv4 <- RP.readS_to_P (readsPrec i)
     _    <- RP.char ':'
@@ -554,27 +573,16 @@ readsIPv6_port = RP.readP_to_S $ do
   port <- toEnum <$> read <$> (RP.many1 $ RP.satisfy isDigit) <* RP.eof
   return (ip,port)
 
-instance IsString (PeerAddr IPv6) where
-  fromString str
-    | [((ip,port),"")] <- readsIPv6_port str =
-        PeerAddr Nothing ip port
-    | otherwise = error $ "fromString: unable to parse (PeerAddr IPv6): " ++ str
-
-instance IsString (PeerAddr IP) where
-  fromString str
-    | '[' `L.elem` str = IPv6 <$> fromString str
-    |      otherwise   = IPv4 <$> fromString str
-
 -- | fingerprint + "at" + dotted.host.inet.addr:port
 -- TODO: instances for IPv6, HostName
-instance Pretty a => Pretty (PeerAddr a) where
+instance Pretty PeerAddr where
   pretty PeerAddr {..}
     | Just pid <- peerId = pretty (fingerprint pid) <+> "at" <+> paddr
     |     otherwise      = paddr
     where
       paddr = pretty peerHost <> ":" <> text (show peerPort)
 
-instance Hashable a => Hashable (PeerAddr a) where
+instance Hashable PeerAddr where
   hashWithSalt s PeerAddr {..} =
     s `hashWithSalt` peerId `hashWithSalt` peerHost `hashWithSalt` peerPort
 
@@ -582,10 +590,10 @@ instance Hashable a => Hashable (PeerAddr a) where
 defaultPorts :: [PortNumber]
 defaultPorts =  [6881..6889]
 
-_resolvePeerAddr :: (IPAddress i) => PeerAddr HostName -> PeerAddr i
-_resolvePeerAddr = undefined
+--_resolvePeerAddr :: (IPAddress i) => PeerAddr HostName -> PeerAddr i
+--_resolvePeerAddr = undefined
 
-_peerSockAddr :: PeerAddr IP -> (Family, SockAddr)
+_peerSockAddr :: PeerAddr -> (Family, SockAddr)
 _peerSockAddr PeerAddr {..} =
     case peerHost of
           IPv4 ipv4 ->
@@ -593,11 +601,11 @@ _peerSockAddr PeerAddr {..} =
           IPv6 ipv6 ->
               (AF_INET6, SockAddrInet6 peerPort 0 (toHostAddress6 ipv6) 0)
 
-peerSockAddr :: PeerAddr IP -> SockAddr
+peerSockAddr :: PeerAddr -> SockAddr
 peerSockAddr = snd . _peerSockAddr
 
 -- | Create a socket connected to the address specified in a peerAddr
-peerSocket :: SocketType -> PeerAddr IP -> IO Socket
+peerSocket :: SocketType -> PeerAddr -> IO Socket
 peerSocket socketType pa = do
     let (family, addr) = _peerSockAddr pa
     sock <- socket family socketType defaultProtocol
@@ -685,51 +693,51 @@ distance (NodeId a) (NodeId b) = NodeDistance (BS.pack (BS.zipWith xor a b))
 
 ------------------------------------------------------------------------
 
-data NodeAddr a = NodeAddr
-  { nodeHost ::                !a
+data NodeAddr = NodeAddr
+  { nodeHost ::                !IP
   , nodePort :: {-# UNPACK #-} !PortNumber
-  } deriving (Eq, Typeable, Functor)
+  } deriving (Eq, Typeable) -- Functor?
 
-instance Show a => Show (NodeAddr a) where
+instance Show NodeAddr where
   showsPrec i NodeAddr {..}
     = showsPrec i nodeHost <> showString ":" <> showsPrec i nodePort
 
-instance Read (NodeAddr IPv4) where
+instance Read NodeAddr where
   readsPrec i x = [ (fromPeerAddr a, s) | (a, s) <- readsPrec i x ]
 
 -- | @127.0.0.1:6882@
-instance Default (NodeAddr IPv4) where
+instance Default NodeAddr where
   def = "127.0.0.1:6882"
 
 -- | KRPC compatible encoding.
-instance Serialize a => Serialize (NodeAddr a) where
+instance Serialize NodeAddr where
   get = NodeAddr <$> get <*> get
   {-# INLINE get #-}
   put NodeAddr {..} = put nodeHost >> put nodePort
   {-# INLINE put #-}
 
 -- | Torrent file compatible encoding.
-instance BEncode a => BEncode (NodeAddr a) where
+instance BEncode NodeAddr where
   toBEncode NodeAddr {..} = toBEncode (nodeHost, nodePort)
   {-# INLINE toBEncode #-}
   fromBEncode b = uncurry NodeAddr <$> fromBEncode b
   {-# INLINE fromBEncode #-}
 
-instance Hashable a => Hashable (NodeAddr a) where
+instance Hashable NodeAddr where
   hashWithSalt s NodeAddr {..} = hashWithSalt s (nodeHost, nodePort)
   {-# INLINE hashWithSalt #-}
 
-instance Pretty ip => Pretty (NodeAddr ip) where
+instance Pretty NodeAddr where
   pretty NodeAddr {..} = pretty nodeHost <> ":" <> pretty nodePort
 
 -- | Example:
 --
 --   @nodePort \"127.0.0.1:6881\" == 6881@
 --
-instance IsString (NodeAddr IPv4) where
+instance IsString NodeAddr where
   fromString = fromPeerAddr . fromString
 
-fromPeerAddr :: PeerAddr a -> NodeAddr a
+fromPeerAddr :: PeerAddr -> NodeAddr
 fromPeerAddr PeerAddr {..} = NodeAddr
   { nodeHost = peerHost
   , nodePort = peerPort
@@ -737,30 +745,30 @@ fromPeerAddr PeerAddr {..} = NodeAddr
 
 ------------------------------------------------------------------------
 
-data NodeInfo a = NodeInfo
+data NodeInfo = NodeInfo
   { nodeId   :: !NodeId
-  , nodeAddr :: !(NodeAddr a)
-  } deriving (Show, Eq, Functor)
+  , nodeAddr :: !NodeAddr
+  } deriving (Show, Eq) --, Functor)
 
-instance Eq a => Ord (NodeInfo a) where
+instance Ord NodeInfo where
   compare = comparing nodeId
 
 -- | KRPC 'compact list' compatible encoding: contact information for
 -- nodes is encoded as a 26-byte string. Also known as "Compact node
 -- info" the 20-byte Node ID in network byte order has the compact
 -- IP-address/port info concatenated to the end.
-instance Serialize a => Serialize (NodeInfo a) where
+instance Serialize NodeInfo where
   get = NodeInfo <$> get <*> get
   put NodeInfo {..} = put nodeId >> put nodeAddr
 
-instance Pretty ip => Pretty (NodeInfo ip) where
+instance Pretty NodeInfo where
   pretty NodeInfo {..} = pretty nodeId <> "@(" <> pretty nodeAddr <> ")"
 
-instance Pretty ip => Pretty [NodeInfo ip] where
+instance Pretty [NodeInfo] where
   pretty = PP.vcat . PP.punctuate "," . L.map pretty
 
 -- | Order by closeness: nearest nodes first.
-rank :: Eq ip => NodeId -> [NodeInfo ip] -> [NodeInfo ip]
+rank :: NodeId -> [NodeInfo] -> [NodeInfo]
 rank nid = L.sortBy (comparing (distance nid . nodeId))
 
 {-----------------------------------------------------------------------

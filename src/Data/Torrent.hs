@@ -835,7 +835,7 @@ data Torrent = Torrent
   , tInfoDict     :: !InfoDict
     -- ^ Info about each content file.
 
-  , tNodes        :: !(Maybe [NodeAddr HostName])
+  , tNodes        :: !(Maybe [NodeAddr])
     -- ^ This key should be set to the /K closest/ nodes in the
     -- torrent generating client's routing table. Alternatively, the
     -- key could be set to a known good 'Network.BitTorrent.Address.Node'

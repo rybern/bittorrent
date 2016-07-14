@@ -20,6 +20,7 @@
 --   a list of torrents) that the tracker is managing.
 --
 {-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE DeriveDataTypeable         #-}
@@ -402,26 +403,21 @@ parseAnnounceQuery params = AnnounceQuery
 --
 --   For more info see: <http://www.bittorrent.org/beps/bep_0023.html>
 --
-data PeerList ip
-  = PeerList        [PeerAddr IP]
-  | CompactPeerList [PeerAddr ip]
-    deriving (Show, Eq, Typeable, Functor)
+data PeerList = PeerList [PeerAddr]
+  deriving (Show, Eq, Typeable)
 
 -- | The empty non-compact peer list.
-instance Default (PeerList IP) where
+instance Default (PeerList) where
   def = PeerList []
   {-# INLINE def #-}
 
-getPeerList :: PeerList IP -> [PeerAddr IP]
+getPeerList :: PeerList -> [PeerAddr]
 getPeerList (PeerList        xs) = xs
-getPeerList (CompactPeerList xs) = xs
 
-instance Serialize a => BEncode (PeerList a) where
+instance BEncode PeerList where
   toBEncode (PeerList        xs) = toBEncode xs
-  toBEncode (CompactPeerList xs) = toBEncode $ runPut (mapM_ put xs)
 
   fromBEncode (BList    l ) = PeerList        <$> fromBEncode (BList l)
-  fromBEncode (BString  s ) = CompactPeerList <$> runGet (many get) s
   fromBEncode  _ = decodingError "PeerList: should be a BString or BList"
 
 -- | The tracker response includes a peer list that helps the client
@@ -447,7 +443,7 @@ data AnnounceInfo =
      , respMinInterval :: !(Maybe Int)
 
        -- | Peers that must be contacted.
-     , respPeers       :: !(PeerList IP)
+     , respPeers       :: !PeerList
 
        -- | Human readable warning.
      , respWarning     :: !(Maybe Text)
@@ -482,9 +478,9 @@ instance BEncode AnnounceInfo where
     where
       (peers, peers6) = prttn respPeers
 
-      prttn :: PeerList IP -> (PeerList IPv4, Maybe (PeerList IPv6))
+      prttn :: PeerList -> (PeerList, Maybe PeerList)
       prttn (PeerList        xs) = (PeerList xs, Nothing)
-      prttn (CompactPeerList xs) = mk $ partitionEithers $ toEither <$> xs
+      {-prttn (CompactPeerList xs) = mk $ partitionEithers $ toEither <$> xs
         where
           mk (v4s, v6s)
             | L.null v6s = (CompactPeerList v4s, Nothing)
@@ -494,7 +490,7 @@ instance BEncode AnnounceInfo where
           toEither PeerAddr {..} = case peerHost of
             IPv4 ipv4 -> Left  $ PeerAddr peerId ipv4 peerPort
             IPv6 ipv6 -> Right $ PeerAddr peerId ipv6 peerPort
-
+-}
   fromBEncode (BDict d)
     | Just t <- BE.lookup "failure reason" d = Failure <$> fromBEncode t
     | otherwise = (`fromDict` (BDict d)) $
@@ -506,12 +502,12 @@ instance BEncode AnnounceInfo where
         <*>  (uncurry merge =<< (,) <$>! "peers" <*>? "peers6")
         <*>? "warning message"
     where
-      merge :: PeerList IPv4 -> Maybe (PeerList IPv6) -> BE.Get (PeerList IP)
+      merge :: PeerList -> Maybe PeerList -> BE.Get PeerList
       merge (PeerList ips)          Nothing  = pure (PeerList ips)
       merge (PeerList _  )          (Just _)
         = fail "PeerList: non-compact peer list provided, \
                          \but the `peers6' field present"
-
+{-
       merge (CompactPeerList ipv4s) Nothing
         = pure $ CompactPeerList (fmap IPv4 <$> ipv4s)
 
@@ -522,7 +518,7 @@ instance BEncode AnnounceInfo where
       merge (CompactPeerList ipv4s) (Just (CompactPeerList ipv6s))
         = pure $ CompactPeerList $
                  (fmap IPv4 <$> ipv4s) <> (fmap IPv6 <$> ipv6s)
-
+-}
   fromBEncode _ = decodingError "Announce info"
 
 -- | UDP tracker protocol compatible encoding.
@@ -532,13 +528,14 @@ instance Serialize AnnounceInfo where
     putWord32be $ fromIntegral respInterval
     putWord32be $ fromIntegral $ fromMaybe 0 respIncomplete
     putWord32be $ fromIntegral $ fromMaybe 0 respComplete
-    forM_ (fmap ipv4 <$> getPeerList respPeers) put
+    forM_ (getPeerList respPeers) put
 
   get = do
     interval <- getWord32be
     leechers <- getWord32be
     seeders  <- getWord32be
-    peers    <- many $ fmap IPv4 <$> get
+    peers    <- get
+    --peers    <- (many :: _) <$> (get :: _)
 
     return $ AnnounceInfo {
         respWarning     = Nothing

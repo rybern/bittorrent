@@ -179,7 +179,7 @@ instance BEncode FindNode where
 -- the compact node info for the target node or the K (8) closest good
 -- nodes in its own routing table.
 --
-newtype NodeFound ip = NodeFound [NodeInfo ip]
+newtype NodeFound = NodeFound [NodeInfo]
   deriving (Show, Eq, Typeable)
 
 nodes_key :: BKey
@@ -191,7 +191,7 @@ binary k = field (req k) >>= either (fail . format) return .
   where
     format str = "fail to deserialize " ++ show k ++ " field: " ++ str
 
-instance (Typeable ip, Serialize ip) => BEncode (NodeFound ip) where
+instance BEncode NodeFound where
   toBEncode (NodeFound ns) = toDict $
        nodes_key .=! runPut (mapM_ put ns)
     .: endDict
@@ -199,8 +199,7 @@ instance (Typeable ip, Serialize ip) => BEncode (NodeFound ip) where
   fromBEncode = fromDict $ NodeFound <$> binary nodes_key
 
 -- | \"q\" == \"find_node\"
-instance (Serialize ip, Typeable ip)
-      => KRPC (Query FindNode) (Response (NodeFound ip)) where
+instance KRPC (Query FindNode) (Response NodeFound) where
   method = "find_node"
 
 {-----------------------------------------------------------------------
@@ -218,13 +217,13 @@ instance BEncode GetPeers where
   toBEncode (GetPeers ih) = toDict   $ info_hash_key .=! ih .: endDict
   fromBEncode             = fromDict $ GetPeers <$>! info_hash_key
 
-type PeerList ip = Either [NodeInfo ip] [PeerAddr ip]
+type PeerList = Either [NodeInfo] [PeerAddr]
 
-data GotPeers ip = GotPeers
+data GotPeers = GotPeers
   { -- | If the queried node has no peers for the infohash, returned
     -- the K nodes in the queried nodes routing table closest to the
     -- infohash supplied in the query.
-    peers        :: PeerList ip
+    peers        :: PeerList
 
     -- | The token value is a required argument for a future
     -- announce_peer query.
@@ -237,7 +236,7 @@ peers_key = "values"
 token_key :: BKey
 token_key = "token"
 
-instance (Typeable ip, Serialize ip) => BEncode (GotPeers ip) where
+instance BEncode GotPeers where
   toBEncode GotPeers {..} = toDict $
     case peers of
       Left  ns ->
@@ -260,8 +259,7 @@ instance (Typeable ip, Serialize ip) => BEncode (GotPeers ip) where
        decodePeers = either fail pure . mapM S.decode
 
 -- | \"q" = \"get_peers\"
-instance (Typeable ip, Serialize ip) =>
-         KRPC (Query GetPeers) (Response (GotPeers ip)) where
+instance KRPC (Query GetPeers) (Response GotPeers) where
   method = "get_peers"
 
 {-----------------------------------------------------------------------

@@ -67,7 +67,7 @@ import Network.BitTorrent.DHT.Session
 -----------------------------------------------------------------------}
 
 nodeHandler :: Address ip => KRPC (Query a) (Response b)
-           => (NodeAddr ip -> a -> DHT ip b) -> NodeHandler ip
+           => (NodeAddr -> a -> DHT ip b) -> NodeHandler ip
 nodeHandler action = handler $ \ sockAddr (Query remoteId q) -> do
   case fromSockAddr sockAddr of
     Nothing    -> throwIO BadAddress
@@ -110,11 +110,11 @@ defaultHandlers = [pingH, findNodeH, getPeersH, announceH]
 --  Basic queries
 -----------------------------------------------------------------------}
 
-type Iteration ip o = NodeInfo ip -> DHT ip (Either [NodeInfo ip] [o ip])
+type Iteration ip o = NodeInfo -> DHT ip (Either [NodeInfo] [o])
 
 -- | The most basic query. May be used to check if the given node is
 -- alive or get its 'NodeId'.
-pingQ :: Address ip => NodeAddr ip -> DHT ip (NodeInfo ip)
+pingQ :: Address ip => NodeAddr -> DHT ip (NodeInfo )
 pingQ addr = do
   (nid, Ping) <- queryNode addr Ping
   return (NodeInfo nid addr)
@@ -151,7 +151,7 @@ announceQ ih p NodeInfo {..} = do
 --  Iterative queries
 -----------------------------------------------------------------------}
 
-type Search    ip o = Conduit [NodeInfo ip] (DHT ip) [o ip]
+type Search    ip o = Conduit [NodeInfo ] (DHT ip) [o]
 
 -- TODO: use reorder and filter (Traversal option) leftovers
 search :: TableKey k => Address ip => k -> Iteration ip o -> Search ip o

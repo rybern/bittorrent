@@ -75,8 +75,8 @@ data Options = Options
   , optName        :: Text
   , optPort        :: PortNumber
   , optExtensions  :: [Extension]
-  , optNodeAddr    :: NodeAddr IPv4
-  , optBootNode    :: Maybe (NodeAddr IPv4)
+  , optNodeAddr    :: NodeAddr
+  , optBootNode    :: Maybe NodeAddr
   }
 
 instance Default Options where

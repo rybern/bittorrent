@@ -81,7 +81,7 @@ instance MonadDHT (DHT IPv4) where
 -- | Run DHT on specified port. <add note about resources>
 dht :: Address ip
     => Options     -- ^ normally you need to use 'Data.Default.def';
-    -> NodeAddr ip -- ^ address to bind this node;
+    -> NodeAddr    -- ^ address to bind this node;
     -> DHT ip a    -- ^ actions to run: 'bootstrap', 'lookup', etc;
     -> IO a        -- ^ result.
 dht opts addr action = do
@@ -125,6 +125,15 @@ dht opts addr action = do
 --   * "router.utorrent.com" since it is just an alias to
 --   "router.bittorrent.com".
 
+  --TODO Translate this to a type other than NodeAddr HostName
+
+defaultBootstrapNodes :: [NodeAddr]
+defaultBootstrapNodes = undefined
+
+resolveHostName :: NodeAddr -> IO (NodeAddr)
+resolveHostName = undefined
+
+  {-
 -- | List of bootstrap nodes maintained by different bittorrent
 -- software authors.
 defaultBootstrapNodes :: [NodeAddr HostName]
@@ -148,13 +157,13 @@ resolveHostName NodeAddr {..} = do
   case fromSockAddr (addrAddress info) of
     Nothing   -> error "resolveNodeAddr: impossible"
     Just addr -> return addr
-
+-}
 -- | One good node may be sufficient.
 --
 --   This operation do block, use
 --   'Control.Concurrent.Async.Lifted.async' if needed.
 --
-bootstrap :: Address ip => [NodeAddr ip] -> DHT ip ()
+bootstrap :: Address ip => [NodeAddr] -> DHT ip ()
 bootstrap startNodes = do
   $(logInfoS) "bootstrap" "Start node bootstrapping"
   nid <- asks thisNodeId
@@ -198,7 +207,7 @@ snapshot = error "DHT.snapshot: not implemented"
 --
 --   This operation is incremental and do block.
 --
-lookup :: Address ip => InfoHash -> DHT ip `Source` [PeerAddr ip]
+lookup :: Address ip => InfoHash -> DHT ip `Source` [PeerAddr]
 lookup topic = do      -- TODO retry getClosest if bucket is empty
   closest <- lift $ getClosest topic
   sourceList [closest] $= search topic (getPeersQ topic)

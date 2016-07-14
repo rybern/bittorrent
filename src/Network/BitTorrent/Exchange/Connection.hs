@@ -607,7 +607,7 @@ instance Default ConnectionState where
 data Connection s = Connection
   { connInitiatedBy  :: !ChannelSide
 
-  , connRemoteAddr   :: !(PeerAddr IP)
+  , connRemoteAddr   :: !PeerAddr
 
     -- | /Both/ peers handshaked with this protocol string. The only
     -- value is \"Bittorrent Protocol\" but this can be changed in
@@ -701,7 +701,7 @@ data HandshakePair = HandshakePair
   , handshakeRecv :: !Handshake
   } deriving (Show, Eq)
 
-validatePair :: HandshakePair -> PeerAddr IP -> IO ()
+validatePair :: HandshakePair -> PeerAddr -> IO ()
 validatePair (HandshakePair hs hs') addr = Prelude.mapM_ checkProp
   [ (def            == hsProtocol hs', InvalidProtocol    $ hsProtocol hs')
   , (hsProtocol hs  == hsProtocol hs', UnexpectedProtocol $ hsProtocol hs')
@@ -830,8 +830,8 @@ reconnect = error "reconnect"
 
 data ConnectionId    = ConnectionId
   { topic      :: !InfoHash
-  , remoteAddr :: !(PeerAddr IP)
-  , thisAddr   :: !(PeerAddr (Maybe IP)) -- ^ foreign address of this node.
+  , remoteAddr :: !PeerAddr
+  , thisAddr   :: !(PeerAddr)-- ^ foreign address of this node.
   }
 
 -- | /Preffered/ settings of wire. To get the real use 'ask'.
@@ -892,7 +892,7 @@ configHandshake ConnectionConfig {..} = Handshake
 --
 data PendingConnection = PendingConnection
   { pendingSock  :: Socket
-  , pendingPeer  :: PeerAddr IP -- ^ 'peerId' is always non empty;
+  , pendingPeer  :: PeerAddr    -- ^ 'peerId' is always non empty;
   , pendingCaps  :: Caps        -- ^ advertised by the peer;
   , pendingTopic :: InfoHash    -- ^ possible non-existent topic.
   }
@@ -911,7 +911,7 @@ pendingHandshake PendingConnection {..} = Handshake
 --
 --   This function can throw 'WireFailure' exception.
 --
-newPendingConnection :: Socket -> PeerAddr IP -> IO PendingConnection
+newPendingConnection :: Socket -> PeerAddr -> IO PendingConnection
 newPendingConnection sock addr = do
   Handshake {..} <- recvHandshake sock
   unless (hsProtocol == def) $ do
@@ -937,7 +937,7 @@ chanToSock :: Int -> Chan Message -> Socket -> IO ()
 chanToSock ka chan sock =
   sourceChan ka chan $= conduitPut S.put C.$$ sinkSocket sock
 
-afterHandshaking :: ChannelSide -> PeerAddr IP -> Socket -> HandshakePair
+afterHandshaking :: ChannelSide -> PeerAddr -> Socket -> HandshakePair
                  -> ConnectionConfig s -> IO ()
 afterHandshaking initiator addr sock
   hpair @ (HandshakePair hs hs')
@@ -979,7 +979,7 @@ afterHandshaking initiator addr sock
 --
 -- This function can throw 'WireFailure' exception.
 --
-connectWire :: PeerAddr IP -> ConnectionConfig s -> IO ()
+connectWire :: PeerAddr -> ConnectionConfig s -> IO ()
 connectWire addr cfg = do
   let catchRefusal m = try m >>= either (throwIO . ConnectionRefused) return
   bracket (catchRefusal (peerSocket Stream addr)) close $ \ sock -> do

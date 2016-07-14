@@ -20,7 +20,7 @@ import Network.BitTorrent.Exchange.Session
 
 data Options = Options
   { optBacklog  :: Int
-  , optPeerAddr :: PeerAddr IP
+  , optPeerAddr :: PeerAddr
   } deriving (Show, Eq)
 
 instance Default Options where
@@ -35,7 +35,7 @@ data Manager = Manager
 
 type Handler = InfoHash -> IO Session
 
-handleNewConn :: Socket -> PeerAddr IP -> Handler -> IO ()
+handleNewConn :: Socket -> PeerAddr -> Handler -> IO ()
 handleNewConn sock addr handler = do
   conn <- newPendingConnection sock addr
   ses  <- handler (pendingTopic conn) `onException` closePending conn

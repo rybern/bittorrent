@@ -244,8 +244,8 @@ data Node ip = Node
 
   , resources     :: !InternalState
   , manager       :: !(Manager (DHT       ip)) -- ^ RPC manager;
-  , routingTable  :: !(MVar    (Table     ip)) -- ^ search table;
-  , contactInfo   :: !(TVar    (PeerStore ip)) -- ^ published by other nodes;
+  , routingTable  :: !(MVar     Table        ) -- ^ search table;
+  , contactInfo   :: !(TVar     PeerStore    ) -- ^ published by other nodes;
   , announceInfo  :: !(TVar     AnnounceSet  ) -- ^ to publish by this node;
   , sessionTokens :: !(TVar     SessionTokens) -- ^ query session IDs.
   , loggerFun     :: !LogFun
@@ -297,7 +297,7 @@ type NodeHandler ip = Handler (DHT ip)
 newNode :: Address ip
           => [NodeHandler ip] -- ^ handlers to run on accepted queries;
           -> Options          -- ^ various dht options;
-          -> NodeAddr ip      -- ^ node address to bind;
+          -> NodeAddr         -- ^ node address to bind;
           -> LogFun           -- ^
           -> IO (Node ip)     -- ^ a new DHT node running at given address.
 newNode hs opts naddr logger = do
@@ -335,10 +335,10 @@ runDHT node action = runReaderT (unDHT action) node
 --  Routing
 -----------------------------------------------------------------------}
 
-routing :: Address ip => Routing ip a -> DHT ip (Maybe a)
+routing :: Address ip => Routing a -> DHT ip (Maybe a)
 routing = runRouting probeNode refreshNodes getTimestamp
 
-probeNode :: Address ip => NodeAddr ip -> DHT ip Bool
+probeNode :: Address ip => NodeAddr -> DHT ip Bool
 probeNode addr = do
   $(logDebugS) "routing.questionable_node" (T.pack (render (pretty addr)))
   result <- try $ Ping <@> addr
@@ -349,7 +349,7 @@ probeNode addr = do
 -- find_nodes search on it.
 
 -- FIXME do not use getClosest sinse we should /refresh/ them
-refreshNodes :: Address ip => NodeId -> DHT ip [NodeInfo ip]
+refreshNodes :: Address ip => NodeId -> DHT ip [NodeInfo]
 refreshNodes nid = do
   $(logDebugS) "routing.refresh_bucket" (T.pack (render (pretty nid)))
   nodes <- getClosest nid
@@ -374,7 +374,7 @@ tryUpdateSecret = do
   toks    <- asks sessionTokens
   liftIO $ atomically $ modifyTVar' toks (invalidateTokens curTime)
 
-grantToken :: Hashable a => NodeAddr a -> DHT ip Token
+grantToken :: NodeAddr -> DHT ip Token
 grantToken addr = do
   tryUpdateSecret
   toks <- asks sessionTokens >>= liftIO . readTVarIO
@@ -382,7 +382,7 @@ grantToken addr = do
 
 -- | Throws 'HandlerError' if the token is invalid or already
 -- expired. See 'TokenMap' for details.
-checkToken :: Hashable a => NodeAddr a -> Token -> DHT ip Bool
+checkToken :: NodeAddr -> Token -> DHT ip Bool
 checkToken addr questionableToken = do
   tryUpdateSecret
   toks <- asks sessionTokens >>= liftIO . readTVarIO
@@ -394,7 +394,7 @@ checkToken addr questionableToken = do
 
 -- | Get current routing table. Normally you don't need to use this
 -- function, but it can be usefull for debugging and profiling purposes.
-getTable :: DHT ip (Table ip)
+getTable :: DHT ip Table
 getTable = do
   var <- asks routingTable
   liftIO (readMVar var)
@@ -404,14 +404,14 @@ getTable = do
 --
 --   This operation used for 'find_nodes' query.
 --
-getClosest :: Eq ip => TableKey k => k -> DHT ip [NodeInfo ip]
+getClosest :: Eq ip => TableKey k => k -> DHT ip [NodeInfo]
 getClosest node = do
   k <- asks (optK . options)
   kclosest k node <$> getTable
 
 -- | This operation do not block but acquire exclusive access to
 --   routing table.
-insertNode :: Address ip => NodeInfo ip -> DHT ip ThreadId
+insertNode :: Address ip => NodeInfo -> DHT ip ThreadId
 insertNode info = fork $ do
   var <- asks routingTable
   modifyMVar_ var $ \ t -> do
@@ -437,14 +437,14 @@ refreshContacts :: DHT ip ()
 refreshContacts = undefined
 
 -- | Insert peer to peer store. Used to handle announce requests.
-insertPeer :: Eq ip => InfoHash -> PeerAddr ip -> DHT ip ()
+insertPeer :: Eq ip => InfoHash -> PeerAddr -> DHT ip ()
 insertPeer ih addr = do
   refreshContacts
   var <- asks contactInfo
   liftIO $ atomically $ modifyTVar' var (P.insert ih addr)
 
 -- | Get peer set for specific swarm.
-lookupPeers :: InfoHash -> DHT ip [PeerAddr ip]
+lookupPeers :: InfoHash -> DHT ip [PeerAddr]
 lookupPeers ih = do
   refreshContacts
   var <- asks contactInfo
@@ -454,7 +454,7 @@ lookupPeers ih = do
 --
 --   This operation use 'getClosest' as failback so it may block.
 --
-getPeerList :: Eq ip => InfoHash -> DHT ip (PeerList ip)
+getPeerList :: (Eq ip) => InfoHash -> DHT ip PeerList
 getPeerList ih = do
   ps <- lookupPeers ih
   if L.null ps
@@ -476,8 +476,8 @@ deleteTopic ih p = do
 -----------------------------------------------------------------------}
 
 -- | Throws exception if node is not responding.
-queryNode :: forall a b ip. Address ip => KRPC (Query a) (Response b)
-          => NodeAddr ip -> a -> DHT ip (NodeId, b)
+queryNode :: forall a b ip . Address ip => KRPC (Query a) (Response b)
+          => NodeAddr -> a -> DHT ip (NodeId, b)
 queryNode addr q = do
   nid <- asks thisNodeId
   Response remoteId r <- query (toSockAddr addr) (Query nid q)
@@ -486,7 +486,7 @@ queryNode addr q = do
 
 -- | Infix version of 'queryNode' function.
 (<@>) :: Address ip => KRPC (Query a) (Response b)
-      => a -> NodeAddr ip -> DHT ip b
+      => a -> NodeAddr -> DHT ip b
 q <@> addr = snd <$> queryNode addr q
 {-# INLINE (<@>) #-}
 
