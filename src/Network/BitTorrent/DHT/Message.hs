@@ -56,6 +56,7 @@
 --   <http://pdos.csail.mit.edu/~petar/papers/maymounkov-kademlia-lncs.pdf>
 --
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE FlexibleInstances  #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances  #-}

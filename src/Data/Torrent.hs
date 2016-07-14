@@ -165,7 +165,6 @@ import Data.ByteString.Lazy  as BL
 import Data.Char
 import Data.Convertible
 import Data.Default
-import Data.Foldable as F
 import Data.Hashable   as Hashable
 import Data.Int
 import Data.List as L
